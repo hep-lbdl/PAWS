@@ -134,25 +134,25 @@ paws gather_model_results --model-type semi_weakly --variables "3,5,6" -o output
 More detailed tutorials are available in the form of jupyter notebooks which cover both CLI and API usage. They can be found in the `tutorials` directory. 
 
 ### Tutorial-01 Data Preparation
-* [![Open In Colab](https://colab.research.google.com/assets/colab-badge.svg)](https://colab.research.google.com/github/hep-lbdl/PAWS/blob/master/tutorials/T01-DataPreparation.ipynb)
+* [![Open In Colab](https://colab.research.google.com/assets/colab-badge.svg)](https://colab.research.google.com/github/hep-lbdl/PAWS/blob/main/tutorials/T01-DataPreparation.ipynb)
 
 ### Tutorial-02 Data Loading
-* [![Open In Colab](https://colab.research.google.com/assets/colab-badge.svg)](https://colab.research.google.com/github/hep-lbdl/PAWS/blob/master/tutorials/T02-DataLoading.ipynb)
+* [![Open In Colab](https://colab.research.google.com/assets/colab-badge.svg)](https://colab.research.google.com/github/hep-lbdl/PAWS/blob/main/tutorials/T02-DataLoading.ipynb)
 
 ### Tutorial-03 Model Loading
-* [![Open In Colab](https://colab.research.google.com/assets/colab-badge.svg)](https://colab.research.google.com/github/hep-lbdl/PAWS/blob/master/tutorials/T03-ModelLoading.ipynb)
+* [![Open In Colab](https://colab.research.google.com/assets/colab-badge.svg)](https://colab.research.google.com/github/hep-lbdl/PAWS/blob/main/tutorials/T03-ModelLoading.ipynb)
 
 ### Tutorial-04 Model Training
-* [![Open In Colab](https://colab.research.google.com/assets/colab-badge.svg)](https://colab.research.google.com/github/hep-lbdl/PAWS/blob/master/tutorials/T04-ModelTraining.ipynb)
+* [![Open In Colab](https://colab.research.google.com/assets/colab-badge.svg)](https://colab.research.google.com/github/hep-lbdl/PAWS/blob/main/tutorials/T04-ModelTraining.ipynb)
 
 ### Tutorial-05 Gather Results
-* [![Open In Colab](https://colab.research.google.com/assets/colab-badge.svg)](https://colab.research.google.com/github/hep-lbdl/PAWS/blob/master/tutorials/T05-GatherResults.ipynb)
+* [![Open In Colab](https://colab.research.google.com/assets/colab-badge.svg)](https://colab.research.google.com/github/hep-lbdl/PAWS/blob/main/tutorials/T05-GatherResults.ipynb)
 
 ### Tutorial-06 Plotting
-* [![Open In Colab](https://colab.research.google.com/assets/colab-badge.svg)](https://colab.research.google.com/github/hep-lbdl/PAWS/blob/master/tutorials/T06-Plotting.ipynb)
+* [![Open In Colab](https://colab.research.google.com/assets/colab-badge.svg)](https://colab.research.google.com/github/hep-lbdl/PAWS/blob/main/tutorials/T06-Plotting.ipynb)
 
 ### Tutorial-07 Metric Landscape
-* [![Open In Colab](https://colab.research.google.com/assets/colab-badge.svg)](https://colab.research.google.com/github/hep-lbdl/PAWS/blob/master/tutorials/T07-MetricLandscape.ipynb)
+* [![Open In Colab](https://colab.research.google.com/assets/colab-badge.svg)](https://colab.research.google.com/github/hep-lbdl/PAWS/blob/main/tutorials/T07-MetricLandscape.ipynb)
 
 ## Citation
 ```python
