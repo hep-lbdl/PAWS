@@ -1,4 +1,4 @@
-This repository contains the code used in the paper "Incorporating Physical Priors into Weakly-Supervised Anomaly Detection" by Chi Lung Cheng, Gurpreet Singh, and Benjamin Nachman.
+This repository contains the code used in the paper ["Incorporating Physical Priors into Weakly-Supervised Anomaly Detection"](https://arxiv.org/abs/2405.08889) by Chi Lung Cheng, Gurpreet Singh, and Benjamin Nachman.
 
 ## Introduction
 
