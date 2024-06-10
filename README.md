@@ -129,6 +129,15 @@ paws gather_model_results --model-type ideal_weakly --variables "3,5,6" -o outpu
 paws gather_model_results --model-type semi_weakly --variables "3,5,6" -o outputs
 ```
 
+### Animations
+
+<p align="center">
+  <img src="assets/gifs/demo1.gif" alt="Animation 1" width="45%">
+  <img src="assets/gifs/demo2.gif" alt="Animation 2" width="45%">
+</p>
+
+The code for the illustrative animations can be found at [here](assets/landscapes.ipynb). Also found in the notebook is the interpolated plot used in the paper.
+
 ### Jupyter Notebooks
 
 More detailed tutorials are available in the form of jupyter notebooks which cover both CLI and API usage. They can be found in the [tutorials](tutorials) directory. 
