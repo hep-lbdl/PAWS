@@ -14,7 +14,7 @@ PAWS provides both API and CLI interfaces. The code requires python 3.8+ and the
 numpy==1.26.2
 matplotlib==3.8.2
 pandas==2.1.3
-awkard==2.6.2
+awkward==2.6.2
 vector==1.4.0
 aliad==0.1.0
 quickstats==0.7.0.5
