@@ -1,5 +1,6 @@
 from typing import Union, Optional, Dict, List
 import os
+import glob
 import json
 import time
 import shutil
@@ -15,7 +16,8 @@ from paws.settings import (
     ModelType, DEDICATED_SUPERVISED, PARAM_SUPERVISED, IDEAL_WEAKLY, SEMI_WEAKLY,
     NUM_JETS, BASE_SEED, WEIGHT_CLIPPING, RETRAIN, NUM_TRIALS,
     DEFAULT_FEATURE_LEVEL, DEFAULT_DECAY_MODE, DEFAULT_DATADIR, DEFAULT_OUTDIR,
-    INIT_MU, INIT_ALPHA, MASS_RANGE, MASS_SCALE
+    INIT_MU, INIT_ALPHA, MASS_RANGE, MASS_INTERVAL, MASS_SCALE, PRIOR_RATIO,
+    SAMPLING_METHOD, INIT_KAPPA
 )
 
 MODEL_OPTIONS = {
@@ -33,7 +35,11 @@ MODEL_OPTIONS = {
     },
     SEMI_WEAKLY: {
         'required': ['mass_point', 'mu', 'alpha'],
-        'optional': ['num_trials', 'weight_clipping', 'retrain', 'fs_version', 'fs_version_2']
+        'optional': ['num_trials', 'weight_clipping', 'retrain', 'kappa', 'fs_version', 'fs_version_2']
+    },
+    PRIOR_RATIO: {
+        'required': [],
+        'optional': ['sampling_method', 'param_expr', 'cache_dataset']
     }
 }
 
@@ -50,9 +56,11 @@ class ModelTrainer(AbstractObject):
                  variables: Optional[str] = None,
                  noise_dimension: Optional[int] = None,
                  seed: int = BASE_SEED,
+                 loss: str = 'bce',
                  split_index: int = 0,
                  batchsize: Optional[int] = None,
                  cache_dataset: Optional[bool] = None,
+                 cache_test: bool = False,
                  version: str = 'v1',
                  multi_gpu: bool = True,
                  interrupt_freq: int = 0,
@@ -85,6 +93,10 @@ class ModelTrainer(AbstractObject):
             feature vector to be used in the training.
         noise_dimension : int, optional
             Number of noise dimension per jet to include in the training.
+        loss : str, default "bce"
+            Name of the loss function. Choose between "bce" (binary
+            cross entropy) and "nll" (negative log-likelihood). Note
+            that nll loss is only allowed for semi-weakly models.
         seed : int, optional, default 2023
             The default seed used for all random processes.
         split_index : int
@@ -92,7 +104,9 @@ class ModelTrainer(AbstractObject):
         batchsize : int
             Batch size for training.
         cache_dataset : bool
-            Whether to cache the datasets.
+            Whether to cache the train and validation datasets.
+        cache_test : bool
+            Whether to cache the test dataset.
         version : str
             Version of the model.
         multi_gpu : bool, default True
@@ -121,8 +135,10 @@ class ModelTrainer(AbstractObject):
             'seed': seed
         }
         self.cache = cache
+        self.loss = loss
         self.batchsize = batchsize
         self.cache_dataset = cache_dataset
+        self.cache_test = cache_test
         self.version = version
         self.split_index = split_index
         self.interrupt_freq = interrupt_freq
@@ -175,8 +191,9 @@ class ModelTrainer(AbstractObject):
                                       verbosity=self.stdout.verbosity, **self.base_config)
 
     def init_model_loader(self) -> None:
-        self.model_loader = ModelLoader(distribute_strategy=self.distribute_strategy, outdir=self.outdir,
-                                        verbosity=self.stdout.verbosity, **self.base_config)
+        self.model_loader = ModelLoader(distribute_strategy=self.distribute_strategy, datadir=self.datadir,
+                                        outdir=self.outdir, verbosity=self.stdout.verbosity, loss=self.loss,
+                                        **self.base_config)
 
     def set_model_options(self, options: Optional[Dict] = None) -> None:
         """
@@ -238,6 +255,10 @@ class ModelTrainer(AbstractObject):
                 options['fs_model_path_2'] = None
             options.setdefault('weight_clipping', WEIGHT_CLIPPING)
             options.setdefault('retrain', RETRAIN)
+            options.setdefault('kappa', INIT_KAPPA)
+
+        if self.model_type == PRIOR_RATIO:
+            options.setdefault('sampling_method', SAMPLING_METHOD)
 
         self.model_options = options
 
@@ -255,7 +276,8 @@ class ModelTrainer(AbstractObject):
         kwargs = {
             'split_index': self.split_index,
             'batchsize': self.batchsize,
-            'cache_dataset': self.cache_dataset
+            'cache_dataset': self.cache_dataset,
+            'cache_test': self.cache_test
         }
         
         if self.model_type in [DEDICATED_SUPERVISED, IDEAL_WEAKLY, SEMI_WEAKLY]:
@@ -268,8 +290,20 @@ class ModelTrainer(AbstractObject):
         if self.model_type in [IDEAL_WEAKLY, SEMI_WEAKLY]:
             kwargs['mu'] = self.model_options['mu']
             kwargs['alpha'] = self.model_options['alpha']
+
+        if self.model_type == PRIOR_RATIO:
+            kwargs['mass_point'] = [MASS_RANGE[0], MASS_RANGE[0]]
+            kwargs['samples'] = ['qcd', 'extra_qcd']
             
         return self.data_loader.get_datasets(**kwargs)
+
+    def get_feature_metadata(self) -> Dict:
+        feature_level = self.base_config['feature_level']
+        dirname = self.path_manager.get_directory('dedicated_dataset', feature_level=feature_level, sample='*', m1='*', m2='*')
+        metadata_filenames = glob.glob(os.path.join(dirname, "*_metadata.json"))
+        with open(metadata_filenames[0], 'r') as file:
+            metadata = json.load(file)
+        return metadata['features']
 
     def get_model(self) -> "tf.keras.Model":
         """
@@ -280,9 +314,7 @@ class ModelTrainer(AbstractObject):
         tf.keras.Model
             The model.
         """        
-        feature_metadata = self.data_loader.feature_metadata
-        if feature_metadata is None:
-            raise RuntimeError('Feature metadata not initialized. Please load datasets first.')
+        feature_metadata = self.get_feature_metadata()
         if self.model_type in [DEDICATED_SUPERVISED, IDEAL_WEAKLY]:
             return self.model_loader.get_supervised_model(feature_metadata, parametric=False)
         if self.model_type == PARAM_SUPERVISED:
@@ -290,7 +322,10 @@ class ModelTrainer(AbstractObject):
         if self.model_type == SEMI_WEAKLY:
             return self.model_loader.get_semi_weakly_model(feature_metadata,
                                                            fs_model_path=self.model_options['fs_model_path'],
-                                                           fs_model_path_2=self.model_options['fs_model_path_2'])
+                                                           fs_model_path_2=self.model_options['fs_model_path_2'],
+                                                           kappa=self.model_options['kappa'])
+        if self.model_type == PRIOR_RATIO:
+            return self.model_loader.get_prior_ratio_model(feature_metadata)
         raise RuntimeError(f'Unknown model type: {self.model_type}')
 
     def get_checkpoint_dir(self, trial: Optional[int] = None) -> str:
@@ -319,7 +354,85 @@ class ModelTrainer(AbstractObject):
             parameters['mu'] = self.model_options['mu']
             parameters['alpha'] = self.model_options['alpha']
 
+        if self.model_type == PRIOR_RATIO:
+            return self.model_loader.get_checkpoint_dir(PARAM_SUPERVISED, **parameters)
+            
         return self.model_loader.get_checkpoint_dir(self.model_type, **parameters)
+
+    def get_model_path(self, trial: Optional[int] = None) -> str:
+        checkpoint_dir = self.get_checkpoint_dir(trial=trial)
+        if self.model_type == PRIOR_RATIO:
+            sampling_method = self.model_options['sampling_method']
+            basename = self.model_loader.path_manager.get_file("model_prior_ratio", basename_only=True,
+                                                               sampling_method=sampling_method)
+            return os.path.join(checkpoint_dir, basename)
+        return self.model_loader.get_checkpoint_path('model_full_train', checkpoint_dir)
+
+    def load_trained_model(self, trial: Optional[int] = None) -> str:
+        model_path = self.get_model_path(trial=trial)
+        model = self.model_loader.load_model(model_path)
+        self.stdout.info(f'Loaded model from {model_path}')
+        return model
+
+    def get_prior_ratio_dataset(self, sampling_method:str='sampled',
+                                param_expr: Optional[str]=None,
+                                cache_dataset: bool = True):
+        # inferred, sampled
+        from paws.components import MetricLandscape
+        import pandas as pd
+        sampling_method = sampling_method.lower()
+        checkpoint_dir = self.get_checkpoint_dir()
+        basename = self.model_loader.path_manager.get_file("prior_ratio_dataset",
+                                                           basename_only=True,
+                                                           sampling_method=sampling_method)
+        prior_ratio_dataset_path = os.path.join(checkpoint_dir, basename)
+        if cache_dataset and os.path.exists(prior_ratio_dataset_path):
+            data = json.load(open(prior_ratio_dataset_path))
+            self.stdout.info(f'Cached prior ratio dataset from "{prior_ratio_dataset_path}"')
+            return np.array(data['x']), np.array(data['y'])
+        if sampling_method == 'sampled':
+            basename = self.model_loader.path_manager.get_file("model_full_train",
+                                                               basename_only=True)
+            supervised_model_path = os.path.join(checkpoint_dir, basename)
+            if not os.path.exists(supervised_model_path):
+                raise FileNotFoundError(f'parametersed model file does not exist: {supervised_model_path}')
+            supervised_model = self.model_loader.load_model(supervised_model_path)
+            datasets = self.get_datasets()
+            landscape = MetricLandscape()
+            if param_expr is None:
+                param_expr = (f"m1={MASS_RANGE[0]}_{MASS_RANGE[1]}_{MASS_INTERVAL},"
+                              f"m2={MASS_RANGE[0]}_{MASS_RANGE[1]}_{MASS_INTERVAL}")
+            output = landscape.eval_supervised(supervised_model, datasets['train'],
+                                               param_expr=param_expr,
+                                               metrics=['prior_ratio'])['predictions']
+            result = {
+                'x': np.column_stack((output['m1'], output['m2'])),
+                'y': output['prior_ratio']
+            }
+        elif sampling_method == 'inferred':
+            from quickstats.maths.numerics import cartesian_product
+            unique_masses =np.arange(MASS_RANGE[0], MASS_RANGE[1] + MASS_INTERVAL, MASS_INTERVAL)
+            unique_masses = unique_masses.astype('float64')
+            mass_points = cartesian_product(unique_masses, unique_masses)
+            result = {
+                'x': [],
+                'y': []
+            }
+            for mass_point in mass_points:
+                result['x'].append(mass_point)
+                df = self.data_loader.get_dataset_specs(mass_point)
+                counts = df.groupby('sample')['size'].sum().to_dict()
+                sig_count = np.sum([count for key, count in counts.items() if 'qcd' not in key.lower()])
+                bkg_count = np.sum([count for key, count in counts.items() if 'qcd' in key.lower()])
+                ratio = bkg_count / sig_count
+                result['y'].append(ratio)
+        else:
+            raise ValueError(f'invalid sampling method: {sampling_method}')
+        from quickstats.utils.common_utils import NpEncoder
+        with open(prior_ratio_dataset_path, 'w') as outfile:
+            json.dump(result, outfile, cls=NpEncoder)
+        self.stdout.info(f'Saved prior ratio dataset as "{prior_ratio_dataset_path}"')
+        return np.array(result['x']), np.array(result['y'])
 
     def print_train_summary(self) -> None:
         """
@@ -375,10 +488,14 @@ class ModelTrainer(AbstractObject):
         t0 = time.time()
         
         # random dataset initialization determined by the split index
-        datasets = self.get_datasets()
-        dataset_summary = self.data_loader.dataset_summary
+        if self.model_type != PRIOR_RATIO:
+            datasets = self.get_datasets()
+            dataset_summary = self.data_loader.dataset_summary
+        else:
+            datasets = None
+            dataset_summary = None
         
-        if self.model_type in [DEDICATED_SUPERVISED, PARAM_SUPERVISED]:
+        if self.model_type in [DEDICATED_SUPERVISED, PARAM_SUPERVISED, PRIOR_RATIO]:
             trials = np.arange(1)
         else:
             trials = np.arange(self.model_options['num_trials'])
@@ -398,7 +515,10 @@ class ModelTrainer(AbstractObject):
         # run over random model parameter initialization (same dataset used)
         for trial in trials:
             self.stdout.info(f"Trial ({trial + 1} / {len(trials)})")
-            model = self.get_model()
+            if self.model_type == PRIOR_RATIO:
+                model, normalizer = self.get_model()
+            else:
+                model = self.get_model()
             checkpoint_dir = self.get_checkpoint_dir(trial=trial)
             os.makedirs(checkpoint_dir, exist_ok=True)
             weight_clipping = self.model_options['weight_clipping'] if self.model_type == SEMI_WEAKLY else False
@@ -410,12 +530,13 @@ class ModelTrainer(AbstractObject):
             with open(config_savepath, 'w') as file:
                 json.dump(train_config, file, indent=2, default=lambda o: o.name)
 
-            ds_summary_path = self.model_loader.get_checkpoint_path('dataset_summary', checkpoint_dir)
-            with open(ds_summary_path, 'w') as file:
-                json.dump(dataset_summary, file, indent=2)
+            if dataset_summary is not None:
+                ds_summary_path = self.model_loader.get_checkpoint_path('dataset_summary', checkpoint_dir)
+                with open(ds_summary_path, 'w') as file:
+                    json.dump(dataset_summary, file, indent=2)
 
             callbacks_map = self.model_loader.get_callbacks(self.model_type, config=train_config)
-            early_stopping = callbacks_map['early_stopping']
+            early_stopping = callbacks_map.get('early_stopping', None)
             callbacks = list(callbacks_map.values())
 
             self.model_loader.compile_model(model, train_config)
@@ -430,26 +551,34 @@ class ModelTrainer(AbstractObject):
                 self.stdout.info(f'--------------------------------------------------------------', bare=True)
                 self.stdout.info(f'Initial Weights: {weight_str}')
 
-            if self.interrupt_freq:
+            if self.interrupt_freq and (early_stopping is not None):
                 self.model_loader.restore_model(early_stopping, model, checkpoint_dir)
 
             t1 = time.time()
 
             # run model training
-            model_savepath = self.model_loader.get_checkpoint_path('model_full_train', checkpoint_dir)
+            model_savepath = self.get_model_path(trial=trial)
             if os.path.exists(model_savepath) and self.cache:
                 self.stdout.info(f'Cached model from "{model_savepath}"')
                 model = self.model_loader.load_model(model_savepath)
                 new_path = os.path.splitext(model_savepath)[0] + "_new.keras"
                 model.save(new_path)
             else:
-                model.fit(datasets['train'],
-                          validation_data=datasets['val'],
-                          epochs=train_config['epochs'],
-                          initial_epoch=early_stopping.initial_epoch,
-                          callbacks=callbacks)
+                if self.model_type != PRIOR_RATIO:
+                    model.fit(datasets['train'],
+                              validation_data=datasets['val'],
+                              epochs=train_config['epochs'],
+                              initial_epoch=early_stopping.initial_epoch,
+                              callbacks=callbacks)
+                else:
+                    x, y = self.get_prior_ratio_dataset(**self.model_options)
+                    normalizer.adapt(x)
+                    model.fit(x, y, batch_size=32,
+                              epochs=train_config['epochs'],
+                              callbacks=callbacks,
+                              validation_split=0.2)
                 
-                if early_stopping.interrupted:
+                if (early_stopping is not None) and early_stopping.interrupted:
                     self.stdout.info('Training interrupted!')
                     return None
 
@@ -461,26 +590,28 @@ class ModelTrainer(AbstractObject):
                         json.dump(predicted_params, file, indent=2, cls=NpEncoder)
                
                 model.save(model_savepath)
+                self.stdout.info(f'Saved model as "{model_savepath}"')
 
             t2 = time.time()
             self.stdout.info(f'Finished training! Training time = {t2 - t1:.3f}s.')
 
             # release memory
-            if trial == trials[-1]:
+            if (trial == trials[-1]) and (datasets is not None):
                 for ds_type in datasets:
                     if ds_type != 'test':
                         datasets[ds_type] = None
 
-            test_result_savepath = self.model_loader.get_checkpoint_path('test_result', checkpoint_dir)
-            if os.path.exists(test_result_savepath) and self.cache:
-                self.stdout.info(f'Cached test results from "{test_result_savepath}".')
-            else:
-                test_results = self.evaluate(model, datasets['test'], y_true=y_true)
-                y_true = test_results['y_true'] if y_true is None else y_true
-                with open(test_result_savepath, 'w') as file:
-                    json.dump(test_results, file, cls=NpEncoder)
-            t3 = time.time()
-            self.stdout.info(f'Finished prediction! Test time = {t3 - t2:.3f}s.')
+            if self.model_type != PRIOR_RATIO:
+                test_result_savepath = self.model_loader.get_checkpoint_path('test_result', checkpoint_dir)
+                if os.path.exists(test_result_savepath) and self.cache:
+                    self.stdout.info(f'Cached test results from "{test_result_savepath}".')
+                else:
+                    test_results = self.evaluate(model, datasets['test'], y_true=y_true)
+                    y_true = test_results['y_true'] if y_true is None else y_true
+                    with open(test_result_savepath, 'w') as file:
+                        json.dump(test_results, file, cls=NpEncoder)
+                t3 = time.time()
+                self.stdout.info(f'Finished prediction! Test time = {t3 - t2:.3f}s.')
 
         total_time = time.time() - t0
         self.stdout.info(f"Task finished! Total time taken = {total_time:.3f}s.")
