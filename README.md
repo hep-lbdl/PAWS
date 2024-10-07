@@ -6,6 +6,12 @@ In this work, we propose a new machine-learning-based anomaly detection strategy
 
 Our study demonstrates the effectiveness of PAWS on the Large Hadron Collider Olympics (LHCO) benchmark dataset, achieving a tenfold increase in sensitivity over previous methods. PAWS remains robust in the presence of noise, where classical methods fail. This approach has broad applicability and advances the frontier of sensitivity between model-agnostic and model-specific searches.
 
+## Toy Demonstration
+
+A demonstration illustrating the PAWS method using toy datasets and distributions without need for external packages is available as a gist below:
+
+[Tutorial-00 Toy Demonstration](tutorials/T00-ToyDemonstration.ipynb)
+
 ## Installation
 
 PAWS provides both API and CLI interfaces. The code requires python 3.8+ and the following libraries:
@@ -16,8 +22,8 @@ matplotlib==3.8.2
 pandas==2.1.3
 awkard==2.6.2
 vector==1.4.0
-aliad==0.1.0
-quickstats==0.7.0.5
+aliad==0.2.0
+quickstats==0.7.0.8
 tensorflow==2.15.0
 ```
 
@@ -141,6 +147,8 @@ The code for the illustrative animations can be found at [here](assets/landscape
 ### Jupyter Notebooks
 
 More detailed tutorials are available in the form of jupyter notebooks which cover both CLI and API usage. They can be found in the [tutorials](tutorials) directory. 
+
+- [Tutorial-00 Toy Demonstration](tutorials/T00-ToyDemonstration.ipynb)
 
 - [Tutorial-01 Data Preparation](tutorials/T01-DataPreparation.ipynb)
 
