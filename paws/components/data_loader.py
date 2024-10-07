@@ -269,7 +269,7 @@ class DataLoader(BaseLoader):
         
     def get_dataset_specs(self, mass_point: Optional[List[float]] = None, samples: Optional[List[str]] = None) -> pd.DataFrame:
         """
-        Generate dataset specifications for the given mass points and samples.
+        Generate dataset specifications for the given mass point and samples.
 
         Parameters
         ----------------------------------------------------
@@ -288,7 +288,7 @@ class DataLoader(BaseLoader):
         if mass_point is not None:
             dirname = "dedicated_dataset"
             m1, m2 = mass_point
-            parameters.update(m1=m1, m2=m2)
+            parameters.update(m1=int(m1), m2=int(m2))
             resolved_samples = self._resolve_samples(samples)
         else:
             dirname = "param_dataset"
