@@ -108,7 +108,7 @@ class ResultLoader(BaseLoader):
         dirname = f'{model_type.key}_result'
         checkpoint_dirs = []
 
-        self.stdout.info(f"Parameter points: {param_points}")
+        #self.stdout.info(f"Parameter points: {param_points}")
         
         for param_point in param_points:
             parameters = self.path_manager.process_parameters(**param_point, **base_params)
