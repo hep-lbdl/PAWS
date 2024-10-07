@@ -38,8 +38,10 @@ class PathManager(PathManagerBase):
         "predicted_parameters"        : ("{model_type}_result", "predicted_parameters.json"),
         "param_supervised_landscape"  : ("landscape", "param_supervised/{feature_level}/"
                                          "{ds_type}/{decay_mode}/landscape_{m1}_{m2}.json"),
-        "semi_weakly_landscape"       : ("landscape", "semi_weakly/{feature_level}/{mu_alpha}/"
-                                         "{ds_type}/{decay_mode}/landscape_{m1}_{m2}.json")
+        "semi_weakly_landscape"       : ("landscape", "semi_weakly/{feature_level}/{tag}/{mu_alpha}/"
+                                         "{ds_type}/{decay_mode}/landscape_{m1}_{m2}.json"),
+        "model_prior_ratio"           : ("param_supervised_result", "full_train_prior_ratio_{sampling_method}.keras"),
+        "prior_ratio_dataset"         : ("param_supervised_result", "prior_ratio_dataset_{sampling_method}.json"),
     }
 
     @staticmethod
