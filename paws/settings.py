@@ -33,10 +33,12 @@ class ModelType(KeyDescriptiveEnum):
     PARAM_SUPERVISED     = (1, "Supervised training with parametric masses", "param_supervised")
     IDEAL_WEAKLY         = (2, "Ideal weakly supervised training", "ideal_weakly")
     SEMI_WEAKLY          = (3, "Semi-weakly supervised training", "semi_weakly")
+    PRIOR_RATIO          = (4, "Prior ratio for calibrating supervised model output", "prior_ratio")
 DEDICATED_SUPERVISED = ModelType.DEDICATED_SUPERVISED
 PARAM_SUPERVISED = ModelType.PARAM_SUPERVISED
 IDEAL_WEAKLY = ModelType.IDEAL_WEAKLY
 SEMI_WEAKLY = ModelType.SEMI_WEAKLY
+PRIOR_RATIO = ModelType.PRIOR_RATIO
 
 class Sample(DescriptiveEnum):
     QCD       = (0, "QCD dijet background", "QCD", 0, None)
@@ -64,6 +66,7 @@ NUM_SHARDS = 100
 
 # train setups
 SPLIT_FRACTIONS = "50:25:25"
+SAMPLING_METHOD = "sampled"
 BASE_SEED = 2023
 NUM_TRIALS = 10
 WEIGHT_CLIPPING = True
@@ -72,6 +75,7 @@ MASS_SCALE = 1 / 100
 
 INIT_MU = -4
 INIT_ALPHA = np.exp(-1)
+INIT_KAPPA = 1.
 
 # List of signal fractions and decay branching ratios used in this study
 # Note the numbers were a bit off from the paper values because paper used S / B instead of S / (B + S) by mistake when defining the datasets so those values have to be shifted a little to correct for it (little to no effect for small mu). This mistake has now been fixed in the code.
@@ -82,6 +86,10 @@ MLP_LAYERS = [(256, 'relu'),
               (128, 'relu'),
               (64, 'relu'),
               (1, 'sigmoid')]
+
+PRIOR_RATIO_NET_LAYERS = [(64, 'relu'),
+                          (32, 'relu'),
+                          (1, None)]
 
 # names of trainable features as in dataset (ordering is important)
 TRAIN_FEATURES = {
