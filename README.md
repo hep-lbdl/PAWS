@@ -8,9 +8,9 @@ Our study demonstrates the effectiveness of PAWS on the Large Hadron Collider Ol
 
 ## Toy Demonstration
 
-A demonstration illustrating the PAWS method using toy datasets and distributions without need for external packages is available as a gist below:
+A demonstration illustrating the PAWS method using toy datasets and distributions without need for external packages is available as github gist here:
 
-[Tutorial-00 Toy Demonstration](tutorials/T00-ToyDemonstration.ipynb)
+[View the Gist](https://gist.github.com/AlkaidCheng/6778da484fb49f19aca26d6d3d290db1)
 
 ## Installation
 
