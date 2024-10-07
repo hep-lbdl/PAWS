@@ -1,13 +1,22 @@
 from typing import Optional, Dict, List
 from itertools import repeat
+from collections import defaultdict
 import numpy as np
 
 from aliad.components import ModelOutput
 from quickstats import AbstractObject, semistaticmethod
+from quickstats.parsers import ParamParser
 from quickstats.utils.common_utils import execute_multi_tasks
 
 from paws.components.model_loader import ModelLoader
 from paws.settings import MASS_SCALE
+
+transforms = {
+    'm1': lambda x : x * MASS_SCALE,
+    'm2': lambda x : x * MASS_SCALE,
+    'mu': lambda x : np.log(x),
+    'alpha': lambda x : x
+}
 
 class MetricLandscape(AbstractObject):
     """
@@ -31,10 +40,10 @@ class MetricLandscape(AbstractObject):
         y_true = np.concatenate([data[y_index] for data in dataset]).flatten()
         return y_true
 
-    def predict_semiweakly(self, model, dataset,
-                           mass_points: List[List[float]],
-                           mu_points: Optional[List[float]]=None,
-                           alpha_points: Optional[List[float]] = None) -> Dict:
+    def eval_semiweakly(self, model, dataset,
+                        param_expr: str,
+                        metrics: Optional[List[str]] = None,
+                        label: Optional[int] = None) -> Dict:
         """
         Get prediction from a semi-weakly model for the given dataset.
 
@@ -44,15 +53,18 @@ class MetricLandscape(AbstractObject):
             The semi-weakly model from which the predictions are made.
         dataset : tf.data.Dataset
             The dataset used for prediction.
-        mass_points : list of list of floats
-            The list of mass points (m1, m2) for which the landscapes are profiled over.
-        mu_points : list of floats, optional
-            The list of signal fractions to scan over. If None, the initial value of
-            the model will be used.
-        alpha_points : list of floats, optional
-            The list of branching fractions to scan over. Only used when evaluating
-            mixed two-prong + three-prong model.  If None, the initial value of
-            the model will be used.
+        param_expr: str
+            An expression specifying the parameter space to scan over.
+            The format is "<param_name>=<min_val>_<max_val>_<step>".
+            Multi-dimensional space can be specified by joining two
+            expressions with a comma. To fix the value of a parameter,
+            use the format "<param_name>=<value>". To includ a finite
+            set of values, use "<param_name>=(<value_1>,<value_2>,...)".
+        metrics: (optional) list of str
+            List of metrics to evaluate. If None, the model output as
+            well as the truth labels will be saved instead.
+        label: (optional) int
+            Label corresponding to the signal of interest.
 
         Returns
         -------
@@ -60,61 +72,43 @@ class MetricLandscape(AbstractObject):
             A dictionary of the predicted outputs and the truth labels.
         """
         init_weights = ModelLoader.get_semi_weakly_model_weights(model)
-        if ('m1' not in init_weights) or ('m2' not in init_weights):
-            raise ValueError('Mass parameters not found in model weights. Please '
-                             'double check your model.')
-        if ('alpha' not in init_weights) and (alpha_points is not None):
-            raise ValueError('Cannot scan over alpha points: semi-weakly model '
-                             'does not contain alpha as trainable weights.')
-        if ('mu' in init_weights) and (mu_points is None):
-            mu_points = [init_weights['mu']]
-        if ('alpha' in init_weights) and (alpha_points is None):
-            alpha_points = [init_weights['alpha']]
-        if mu_points is None:
-            mu_points = [None]
-        if alpha_points is None:
-            alpha_points = [None]
 
+        param_points = ParamParser.parse_param_str(param_expr)
+
+        y_true = self._get_y_true(dataset)
         outputs = {
-            'predictions': {
-                'm1': [],
-                'm2': [],
-                'mu': [],
-                'alpha': [],
-                'y_pred': []
-            }
+            'predictions': defaultdict(list)
         }
-        outputs['y_true'] = self._get_y_true(dataset)
+        if metrics is None:
+            outputs['y_true'] = y_true
+            metrics = []
+        for param_point in param_points:
+            for key, val in param_point.items():
+                if key not in init_weights:
+                    raise ValueError(f'Model does not have the parameter "{key}".')
+                if val is None:
+                    param_point[key] = init_weights[key]
+                outputs['predictions'][key].append(param_point[key])
+            encoded_str = ParamParser.val_encode_parameters(param_point)
+            ModelLoader.set_model_weights(model, param_point)
+            self.stdout.info(f"Running model prediction with {encoded_str}")
 
-        for mu in mu_points:
-            for alpha in alpha_points:
-                for mass_point in mass_points:
-                    m1, m2 = mass_point
-                    self.stdout.info(f"Running model prediction with (m1, m2, mu) = ({m1}, {m2}, {mu})")
-                    weights = {
-                        'm1': m1 * MASS_SCALE,
-                        'm2': m2 * MASS_SCALE,
-                        'mu': np.log(mu),
-                        'alpha': alpha
-                    }
-                    ModelLoader.set_model_weights(model, weights)
-                    y_pred = model.predict(dataset).flatten()
-                    outputs['predictions']['m1'].append(m1)
-                    outputs['predictions']['m2'].append(m2)
-                    outputs['predictions']['mu'].append(mu)
-                    outputs['predictions']['alpha'].append(alpha)
-                    outputs['predictions']['y_pred'].append(y_pred)
-        if None in alpha_points:
-            outputs['predictions'].pop('alpha')
-        if None in mu_points:
-            outputs['predictions'].pop('mu')
+            y_pred = model.predict(dataset).flatten()
+            for metric in metrics:
+                metric_val = self._evaluate(metric, y_pred, y_true, label=label)
+                outputs['predictions'][metric].append(metric_val)
+            if not metrics:
+                outputs['predictions']['y_pred'].append(y_pred)
+
         for key in outputs['predictions']:
             outputs['predictions'][key] = np.array(outputs['predictions'][key])
 
         return outputs
 
-    def predict_supervised(self, model, dataset,
-                           mass_points: List[List[float]]) -> Dict:
+    def eval_supervised(self, model, dataset,
+                        param_expr: str,
+                        metrics: Optional[List[str]] = None,
+                        label: Optional[int] = None) -> Dict:
         """
         Get prediction from a supervised model for the given dataset.
 
@@ -124,9 +118,16 @@ class MetricLandscape(AbstractObject):
             The supervised model from which the predictions are made.
         dataset : tf.data.Dataset
             The dataset used for prediction.
-        mass_points : list of list of floats
-            The list of mass points (m1, m2) for which the landscapes are profiled over.
-
+        param_expr: str
+            An expression specifying the parameter space to scan over.
+            The format is "<param_name>=<min_val>_<max_val>_<step>".
+            Multi-dimensional space can be specified by joining two
+            expressions with a comma. To fix the value of a parameter,
+            use the format "<param_name>=<value>". To includ a finite
+            set of values, use "<param_name>=(<value_1>,<value_2>,...)".
+        label: (optional) int
+            Label corresponding to the signal of interest.
+        
         Returns
         -------
         result : dict
@@ -147,28 +148,29 @@ class MetricLandscape(AbstractObject):
         model_out = model(model_inputs)
         param_model = tf.keras.Model(inputs=train_inputs, outputs=model_out)
 
+        param_points = ParamParser.parse_param_str(param_expr)
+
+        y_true = self._get_y_true(dataset)
         outputs = {
-            'predictions': {
-                'm1': [],
-                'm2': [],
-                'y_pred': []
-            }
+            'predictions': defaultdict(list)
         }
-        outputs['y_true'] = self._get_y_true(dataset)
+        if metrics is None:
+            outputs['y_true'] = y_true
+            metrics = []
 
-        for mass_point in mass_points:
-            m1, m2 = mass_point
-            self.stdout.info(f"Running model prediction with (m1, m2) = ({m1}, {m2})")
-            weights = {
-                'm1': m1,
-                'm2': m2
-            }
-            ModelLoader.set_model_weights(param_model, weights)
-            y_pred = param_model.predict(dataset)
-            outputs['predictions']['m1'].append(m1)
-            outputs['predictions']['m2'].append(m2)
-            outputs['predictions']['y_pred'].append(y_pred)
-
+        for param_point in param_points:
+            for key, val in param_point.items():
+                outputs['predictions'][key].append(val)
+            encoded_str = ParamParser.val_encode_parameters(param_point)
+            ModelLoader.set_model_weights(param_model, param_point)
+            self.stdout.info(f"Running model prediction with {encoded_str}")
+            y_pred = param_model.predict(dataset).flatten()
+            for metric in metrics:
+                metric_val = self._evaluate(metric, y_pred, y_true, label=label)
+                outputs['predictions'][metric].append(metric_val)
+            if not metrics:
+                outputs['predictions']['y_pred'].append(y_pred)
+                
         for key in outputs['predictions']:
             outputs['predictions'][key] = np.array(outputs['predictions'][key])
 
@@ -206,8 +208,16 @@ class MetricLandscape(AbstractObject):
         return landscape
 
     @semistaticmethod
-    def get_loss_landscape(self, data, label: Optional[int] = None, parallel: int = -1):
+    def get_logloss_landscape(self, data, label: Optional[int] = None, parallel: int = -1):
         return self._get_metric_landscape(data, 'log_loss', label=label, parallel=parallel)
+
+    @semistaticmethod
+    def get_max_likelihood_landscape(self, data, label: Optional[int] = None, parallel: int = -1):
+        return self._get_metric_landscape(data, 'max_likelihood', label=label, parallel=parallel)
+
+    @semistaticmethod
+    def get_mle_landscape(self, data, label: Optional[int] = None, parallel: int = -1):
+        return self._get_metric_landscape(data, 'max_likelihood', label=label, parallel=parallel)
 
     @semistaticmethod
     def get_auc_landscape(self, data, label: Optional[int] = None, parallel: int = -1):
